@@ -1,57 +1,62 @@
-# Sistema gorod sync
-	Программа по взаимодействию с сервисами / прототипами сервисов с вычислительным центром Система город
-	Страна: РФ
-	Регион: 22(вероятно только для этого региона)
-	Программа при наличии настроек в setings.ini скачивает реестры, загружает реестры и скачивает показания в АРМ Системы Город
+#  Upload/Download gorodok data (unofficial app for Sistema Gorod)
 
-		-d           загрузить реестры, которые ещё не загружались
+> Unofficial app for billing synchronized and getting meter reading. (not public resource 'gorodok' by https://sistemagorod.ru)
 
-		-d -manual   загрузить реестры за последние 10 дней
+`! Caution. it's version for one old NON-API resource 'gorodok'`
 
-		-meter       загрузить показания
+`! This app may be working, if your organization have legal access to servers 'gorodok' `
 
-		-u           выгрузить реестры
+`! Note: official apps not worked/buildable on Linux and not get meters data`
 
-	Содержание файла настроек
+> Functionality:
 
-	[General]
+1) Downloading billing data
+2) Uploading billing data
+3) Downloading meters data
+4) Auto zipping/unzipping data
 
-	path_download_meter = \\10.10.10.10\folder\meters.txt # путь до файла загрузки показаний из арм
+### Accessible flags:
 
-	path_download_data_zip = \\10.10.10.10\folder\Pays\ # путь до архивов папки загрузки
+> Download new data
 
-	path_download_data = \\10.10.10.10\folder\Pays\ # путь до папки загрузки
+`-d`
 
-	path_upload_data_zip = \\10.10.10.10\folder\Saldo\ # путь до файла архивов выгрузки
+> Download data (last 10 days)
 
-	path_upload_data = \\10.10.10.10\folder\Saldo\ # путь до папки выгрузки
+`-d -manual`
 
-	path_logs = \\10.10.10.10\folder\Logs\ # путь до логов  загрузки и выгрузки
+> Download meters data
 
-	mail_sender_alias = INFO # отправитель в письме
+`-meter`
 
-	mail_sender_email = info@info.info # отправитель в письме
+> Upload data
 
-	mail_recipients_email = r1@info.info;r2@info.info # получатели писем
+`-u`
 
-	mail_server = 10.10.10.10:25 # почтовый сервер. предполагается доступ без аутентификации
+### Configuration file description:
 
-	mail_error_subject = "error" # заголовок сообщения об ошибке
+```json
+{
+  "path_download_meter": "folder\\meters.txt", // where will been saved meters data
+  "path_download_data_zip": "folder\\Pays\\",  // where will been saved file ZIP
+  "path_download_data": "folder\\Pays\\",      // where will been saved unziped files
+  "path_upload_data_zip": "folder\\Saldo\\",   // where lay down zipped files for uploading
+  "path_upload_data": "folder\\Saldo\\",       // where lay down unzipped files for uploading
+  "path_logs": "folder\\Logs\\",               // where will be lay down logs
+  "mail_sender_alias": "INFO",                 // sender name
+  "mail_sender_email": "info@x.X",             // sender email
+  "mail_recipients_email": "r1@x.X;r2@x.X",    // recipients by semicolon
+  "mail_server": "10.10.10.10:25",             // mail server address (without auth)
+  "mail_error_subject": "error",               // error header
+  "mail_error_body": "ERROR",                  // error body
+  "arm_server": "https://172.0.0.1",           // gorodok address
+  "arm_login": "login",                        // gorodok login
+  "arm_password": "password",                  // gorodok password
+  "arm_trying": 5,                             // num trying
+  "upload_mask": "rsaldo_(in|ra|ra_p|s|inb|p|o|z)\\.txt$",    // mask files
+  "unzip_without_subfolder": true,             // not save folder struct by unzipped
+  "delete_ziped": true,                        // clear ZIP files
+  "last_days": 10                              // num days in 'manual' flag
+}
+```
 
-	mail_error_body = <b style='color:red'>ERROR</b> # вид сообщения об ошибке
-
-	arm_server = https://172.0.0.1 # путь до арм
-
-	arm_login = login # логин
-
-	arm_password = password # пароль
-
-	arm_trying = 5 # количество попыток соединения с арм
-
-	upload_mask = filename_(x|y|z|1)\.txt # маска выгрузки файлов
-
-	unzip_without_subfolder = yes # раскаковка без учета подкаталогов
-	
-	delete_ziped = yes # удалять ли архивы
-
-	last_days = 10 # количество дней ручной загрузки

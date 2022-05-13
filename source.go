@@ -19,12 +19,11 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
-
-	. "github.com/ulvham/helper"
-	"github.com/vaughan0/go-ini"
 )
 
 const (
@@ -43,20 +42,48 @@ const (
 	arm_login               = "arm_login"
 	arm_password            = "arm_password"
 	arm_server              = "arm_server"
-	error_text              = "Error:"
-	begin_text              = "Start:"
-	end_text                = "Complete:"
-	settings                = "settings.ini"
 	arm_trying              = "arm_trying"
 	upload_mask             = "upload_mask"
 	unzip_without_subfolder = "unzip_without_subfolder"
 	delete_ziped            = "delete_ziped"
 	last_days               = "last_days"
-	arm_trying_sleep        = 30 * time.Second
-	timeout                 = 5 * time.Second
+
+	error_text = "Error:"
+	begin_text = "Start:"
+	end_text   = "Complete:"
+
+	arm_trying_sleep = 30 * time.Second
+	timeout          = 5 * time.Second
 )
 
-var p = fmt.Println
+var (
+	p            = fmt.Println
+	sprintf      = fmt.Sprintf
+	settingsFile = "settings.ini"
+)
+
+type Settings struct {
+	PathDownloadMeter     string `json:"path_download_meter" default:"folder\\meters.txt"`
+	PathDownloadDataZip   string `json:"path_download_data_zip" default:"folder\\Pays\\"`
+	PathDownloadData      string `json:"path_download_data" default:"folder\\Pays\\"`
+	PathUploadDataZip     string `json:"path_upload_data_zip" default:"folder\\Saldo\\"`
+	PathUploadData        string `json:"path_upload_data" default:"folder\\Saldo\\"`
+	PathLogs              string `json:"path_logs" default:"folder\\Logs\\"`
+	MailSenderAlias       string `json:"mail_sender_alias" default:"INFO"`
+	MailSenderEmail       string `json:"mail_sender_email" default:"info@info.info"`
+	MailRecipientsEmail   string `json:"mail_recipients_email" default:"r1@info.info;r2@info.info"`
+	MailServer            string `json:"mail_server" default:"10.10.10.10:25"`
+	MailErrorSubject      string `json:"mail_error_subject" default:"error"`
+	MailErrorBody         string `json:"mail_error_body" default:"<b style='color:red'>ERROR</b>"`
+	ArmServer             string `json:"arm_server" default:"https://172.0.0.1"`
+	ArmLogin              string `json:"arm_login" default:"login"`
+	ArmPassword           string `json:"arm_password" default:"password"`
+	ArmTrying             int    `json:"arm_trying" default:"5"`
+	UploadMask            string `json:"upload_mask" default:"rsaldo_(in|ra|ra_p|s|inb|p|o|z)\\.txt$"`
+	UnzipWithoutSubfolder bool   `json:"unzip_without_subfolder" default:"true"`
+	DeleteZiped           bool   `json:"delete_ziped" default:"true"`
+	LastDays              int    `json:"last_days" default:"10"`
+}
 
 type MyHttp struct {
 	Debug       bool
@@ -72,7 +99,7 @@ type MyHttp struct {
 	TGT         string
 	EmailServer string
 	Port        int
-	Ini         ini.Section
+	Settings    Settings
 	Data        string
 	Day         string
 	DayEnd      string
@@ -121,11 +148,11 @@ func randInt(min int64, max int64) int {
 	return int(return__)
 }
 
-func (obj *MyHttp) ToError(test string) {
+func (o *MyHttp) ToError(test string) {
 	if test != "" {
-		obj.log(test)
+		o.log(test)
 	}
-	obj.Error = obj.Error + "\n" + test
+	o.Error = o.Error + "\n" + test
 }
 
 func exists(path string) bool {
@@ -135,26 +162,26 @@ func exists(path string) bool {
 	return false
 }
 
-func (obj *MyHttp) addHeader(boundary ...string) map[string]string {
+func (o *MyHttp) addHeader(boundary ...string) map[string]string {
 	parameters := make(map[string]string)
-	parameters["Host"] = obj.Host
+	parameters["Host"] = o.Host
 	if len(boundary) > 0 {
 		parameters["Content-Type"] = "multipart/form-data; boundary=" + boundary[0]
 	} else {
 		parameters["Content-Type"] = "application/x-www-form-urlencoded"
 	}
-	parameters["Cookie"] = obj.CookiesStr
+	parameters["Cookie"] = o.CookiesStr
 	return parameters
 }
 
-func (obj *MyHttp) mail() {
-	if obj.Error != "" {
-		errorsAll := strings.Split(obj.Error, "\n")
+func (o *MyHttp) mail() {
+	if o.Error != "" {
+		errorsAll := strings.Split(o.Error, "\n")
 		body := ""
 		for _, v := range errorsAll {
 			body += `<div style="font-family:monospace;border:dashed 1px #634f36;display:inline;background:#fffff5;white-space:nowrap;">` + v + "</div><br>"
 		}
-		rec_list := strings.Split(obj.Ini[mail_recipients_email], ";")
+		rec_list := strings.Split(o.Settings.MailRecipientsEmail, ";")
 		to_name := ""
 		t_ := ""
 		for i := 1; i <= len(rec_list); i++ {
@@ -164,11 +191,10 @@ func (obj *MyHttp) mail() {
 				t_ += rec_list[i-1] + "; "
 			}
 		}
-		from := obj.Ini[mail_sender_email]
-		part1 := fmt.Sprintf("From: %s<%s>\r\nTo: %s <%s>\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed", obj.Ini[mail_sender_alias], from, to_name, t_, obj.Ini[mail_error_subject])
-		part2 := fmt.Sprintf("\r\nContent-Type: text/html\r\n\r\n%s\r\n", body+`<br><br>`+obj.Ini[mail_error_body])
-		c, _ := smtp.Dial(obj.Ini[mail_server])
-		c.Mail(from)
+		part1 := fmt.Sprintf("From: %s<%s>\r\nTo: %s <%s>\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed", o.Settings.MailSenderAlias, o.Settings.MailSenderEmail, to_name, t_, o.Settings.MailErrorSubject)
+		part2 := fmt.Sprintf("\r\nContent-Type: text/html\r\n\r\n%s\r\n", body+`<br><br>`+o.Settings.MailErrorBody)
+		c, _ := smtp.Dial(o.Settings.MailServer)
+		c.Mail(o.Settings.MailSenderEmail)
 		for i := 1; i <= len(rec_list); i++ {
 			c.Rcpt(rec_list[i-1])
 		}
@@ -181,22 +207,19 @@ func (obj *MyHttp) mail() {
 
 func (o *MyHttp) query(hostURL string, Method string, body *bytes.Reader, parameters map[string]string, CookiesJar *cookiejar.Jar) ([]byte, string) {
 	i := 1
-	iend := ToInt(o.Ini[arm_trying])
+	iend := o.Settings.ArmTrying
 	for {
-
 		cookiesRet := ""
 		tr := &http.Transport{
 			TLSClientConfig: &tls.Config{
 				InsecureSkipVerify: true,
 			},
 		}
-
 		req, err := http.NewRequest(Method, hostURL, body)
 		if err != nil {
 			o.log(err.Error())
-			//return []byte{}, ""
 			time.Sleep(arm_trying_sleep)
-			o.log("bad trying №" + ToStr(i) + " " + time.Now().Format("2006.01.02 15:04:05"))
+			o.log("bad trying №" + sprintf("%d", i) + " " + time.Now().Format("2006.01.02 15:04:05"))
 			if i == iend {
 				break
 			} else {
@@ -204,7 +227,6 @@ func (o *MyHttp) query(hostURL string, Method string, body *bytes.Reader, parame
 				continue
 			}
 		}
-
 		for k, v := range parameters {
 			req.Header.Add(k, v)
 		}
@@ -216,9 +238,8 @@ func (o *MyHttp) query(hostURL string, Method string, body *bytes.Reader, parame
 		resp, err := client.Do(req)
 		if err != nil {
 			o.log(err.Error())
-			//return []byte{}, ""
 			time.Sleep(arm_trying_sleep)
-			o.log("bad trying №" + ToStr(i) + " " + time.Now().Format("2006.01.02 15:04:05"))
+			o.log("bad trying №" + sprintf("%d", i) + " " + time.Now().Format("2006.01.02 15:04:05"))
 			if i == iend {
 				break
 			} else {
@@ -226,13 +247,11 @@ func (o *MyHttp) query(hostURL string, Method string, body *bytes.Reader, parame
 				continue
 			}
 		}
-
 		b, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
 			o.log(err.Error())
-			//return []byte{}, ""
 			time.Sleep(arm_trying_sleep)
-			o.log("bad trying №" + ToStr(i) + " " + time.Now().Format("2006.01.02 15:04:05"))
+			o.log("bad trying №" + sprintf("%d", i) + " " + time.Now().Format("2006.01.02 15:04:05"))
 			if i == iend {
 				break
 			} else {
@@ -247,7 +266,7 @@ func (o *MyHttp) query(hostURL string, Method string, body *bytes.Reader, parame
 		}
 		return b, cookiesRet
 	}
-	o.ToError("Try to connect (" + ToStr(i) + " times) to " + hostURL)
+	o.ToError("Try to connect (" + sprintf("%d", i) + " times) to " + hostURL)
 	return []byte{}, ""
 }
 
@@ -286,7 +305,7 @@ func (o *MyHttp) DownloadMeter() {
 	if o.JSESID == "" {
 		return
 	}
-	o.log("settings - " + path_download_meter + " is " + o.Ini[path_download_meter])
+	o.log("settings - " + path_download_meter + " is " + o.Settings.PathDownloadMeter)
 	h := o.Host + "/webprovider/counterReading/download"
 	now := time.Date(time.Now().Year(), time.Now().Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, 1, -1)
 	if time.Now().Day() < 21 {
@@ -303,7 +322,7 @@ func (o *MyHttp) DownloadMeter() {
 	if strings.Contains(o.Data, "<") || strings.Trim(o.Data, " ") == "" {
 		o.ToError(error_text + "Format meters file")
 	} else {
-		o.writef(o.Ini[path_download_meter])
+		o.writef(o.Settings.PathDownloadMeter)
 	}
 	o.log(end_text + "[DOWNLOAD METER]")
 }
@@ -312,13 +331,13 @@ func (o *MyHttp) DownloadRegistry(manual bool) {
 	if o.JSESID == "" {
 		return
 	}
-	o.log("settings - " + path_download_data_zip + " is " + o.Ini[path_download_data_zip])
-	o.log("settings - " + path_download_data + " is " + o.Ini[path_download_data])
-	o.log("settings - " + unzip_without_subfolder + " is " + o.Ini[unzip_without_subfolder])
-	o.log("settings - " + last_days + " is " + o.Ini[last_days])
+	o.log("settings - " + path_download_data_zip + " is " + o.Settings.PathDownloadDataZip)
+	o.log("settings - " + path_download_data + " is " + o.Settings.PathDownloadData)
+	o.log("settings - " + unzip_without_subfolder + " is " + sprintf("%t", o.Settings.UnzipWithoutSubfolder))
+	o.log("settings - " + last_days + " is " + sprintf("%d", o.Settings.LastDays))
 	h := o.Host + "/webprovider/batchProcessing/getReestersOnZip"
 	v := url.Values{}
-	v.Add("dbeg", time.Now().AddDate(0, 0, -ToInt(o.Ini[last_days])).Format("02.01.2006"))
+	v.Add("dbeg", time.Now().AddDate(0, 0, -o.Settings.LastDays).Format("02.01.2006"))
 	v.Add("dend", time.Now().Format("02.01.2006"))
 	if !manual {
 		v.Add("isSend", "1")
@@ -328,9 +347,8 @@ func (o *MyHttp) DownloadRegistry(manual bool) {
 	body, o.CookiesStr = o.query(h, "POST", bytes.NewReader([]byte(v.Encode())), o.addHeader(), o.CookiesJar)
 	o.Data = string(body)
 	rand := time.Now().Format("2006_01_02_15_04_05") + "__" + randomString(12)
-	o.writef(o.Ini[path_download_data_zip] + rand + ".zip")
-	unzip_without_subfolder_bool := o.Ini[unzip_without_subfolder] == "yes"
-	files := o.Unzip(o.Ini[path_download_data_zip]+rand+".zip", o.Ini[path_download_data], unzip_without_subfolder_bool)
+	o.writef(o.Settings.PathDownloadDataZip + rand + ".zip")
+	files := o.Unzip(o.Settings.PathDownloadDataZip+rand+".zip", o.Settings.PathDownloadData)
 	for _, v := range files {
 		o.log("unzip [" + v + "]")
 	}
@@ -341,13 +359,12 @@ func (o *MyHttp) UploadRegistryFileConfirm() {
 	if o.JSESID == "" {
 		return
 	}
-	o.log("settings - " + path_upload_data_zip + " is " + o.Ini[path_upload_data_zip])
-	o.log("settings - " + path_upload_data + " is " + o.Ini[path_upload_data])
-	o.log("settings - " + upload_mask + " is " + o.Ini[upload_mask])
-	o.log("settings - " + delete_ziped + " is " + o.Ini[delete_ziped])
-
+	o.log("settings - " + path_upload_data_zip + " is " + o.Settings.PathUploadDataZip)
+	o.log("settings - " + path_upload_data + " is " + o.Settings.PathUploadData)
+	o.log("settings - " + upload_mask + " is " + o.Settings.UploadMask)
+	o.log("settings - " + delete_ziped + " is " + sprintf("%t", o.Settings.DeleteZiped))
 	files := []string{}
-	err := getFilesInFolder(&files, o.Ini[path_upload_data], []string{}, o.Ini[upload_mask])
+	err := getFilesInFolder(&files, o.Settings.PathUploadData, []string{}, o.Settings.UploadMask)
 	if err != nil {
 		o.ToError(err.Error())
 	}
@@ -366,8 +383,7 @@ func (o *MyHttp) UploadRegistryFileConfirm() {
 		o.Data = string(body)
 		o.log(end_text + "COMPLETE UPLOAD REGISTRY" + "[" + idFile + ": " + string(body) + "]")
 	}
-	delete_ziped_bool := o.Ini[delete_ziped] == "yes"
-	o.Zip(newFiles, o.Ini[path_upload_data_zip]+time.Now().Format("2006_01_02_15_04_05")+"__"+uuid()+".zip", delete_ziped_bool)
+	o.Zip(newFiles, o.Settings.PathUploadDataZip+time.Now().Format("2006_01_02_15_04_05")+"__"+uuid()+".zip", o.Settings.DeleteZiped)
 }
 
 func uuid() string {
@@ -377,7 +393,6 @@ func uuid() string {
 }
 
 func (o *MyHttp) UploadRegistryFile(path string) string {
-
 	h := o.Host + "/webprovider/exchangeReeLogic/setToBd"
 	var body []byte
 	file_, w := o.createMultipartFormData("file", path)
@@ -386,8 +401,8 @@ func (o *MyHttp) UploadRegistryFile(path string) string {
 	o.Data = string(body)
 	return_ := new(UploadRegistryFileReturn)
 	json.Unmarshal(body, &return_)
-	o.log(end_text + "UPLOAD FILE " + "[" + ToStr(return_.FileID) + "]")
-	return ToStr(return_.FileID)
+	o.log(end_text + "UPLOAD FILE " + "[" + sprintf("%d", return_.FileID) + "]")
+	return sprintf("%d", return_.FileID)
 }
 
 func (o *MyHttp) createMultipartFormData(fieldName, fileName string) (bytes.Buffer, *multipart.Writer) {
@@ -417,14 +432,20 @@ func (o *MyHttp) writef(path string) {
 }
 
 func fileDate(path string) bool {
-	fi, _ := os.Stat(path)
+	fi, err := os.Stat(path)
+	if err != nil {
+		p(err)
+	}
 	return fi.ModTime().Day() >= time.Now().Day()-1
 }
 
 func (o *MyHttp) log(text string) {
 	if text != "" {
 		p(time.Now().Format("2006-01-02[15:04:05]")+" : ", text)
-		f, _ := os.OpenFile(o.Ini[path_logs]+"logs__"+time.Now().Format("2006-01")+".txt", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+		f, err := os.OpenFile(o.Settings.PathLogs+"logs__"+time.Now().Format("2006-01")+".txt", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+		if err != nil {
+			o.ToError(err.Error())
+		}
 		defer f.Close()
 		log.SetOutput(f)
 		log.Println(time.Now().Format("2006-01-02[15:04:05]")+" : ", text)
@@ -438,10 +459,8 @@ func (o *MyHttp) Zip(src []string, dest string, del bool) {
 		o.ToError(err.Error())
 	}
 	defer file.Close()
-
 	zipw := zip.NewWriter(file)
 	defer zipw.Close()
-
 	for _, filename := range src {
 		if err := appendFiles(filename, zipw); err != nil {
 			o.ToError(err.Error())
@@ -468,18 +487,16 @@ func (o *MyHttp) Zip(src []string, dest string, del bool) {
 	}
 }
 
-func appendFiles(filename string, zipw *zip.Writer) error {
+func appendFiles(filename string, zw *zip.Writer) error {
 	file, err := os.Open(filename)
 	if err != nil {
 		return fmt.Errorf("Failed to open %s: %s", filename, err)
 	}
 	defer file.Close()
-
-	wr, err := zipw.Create(filename)
+	wr, err := zw.Create(filename)
 	if err != nil {
 		return fmt.Errorf("Failed to create entry for %s in zip file: %s", filename, err)
 	}
-
 	if _, err := io.Copy(wr, file); err != nil {
 		return fmt.Errorf("Failed to write %s to zip: %s", filename, err)
 	}
@@ -488,7 +505,10 @@ func appendFiles(filename string, zipw *zip.Writer) error {
 }
 
 func getFilesInFolder(backFiles *[]string, basePath string, ignoreFilesList []string, mask string) error {
-	r, _ := regexp.Compile(mask)
+	r, err := regexp.Compile(mask)
+	if err != nil {
+		p(err)
+	}
 	checkIgrore := func(n string, il []string) bool {
 		for _, ifile := range il {
 			if strings.HasSuffix(n, ifile) && ifile != "" {
@@ -513,7 +533,7 @@ func getFilesInFolder(backFiles *[]string, basePath string, ignoreFilesList []st
 	return nil
 }
 
-func (o *MyHttp) Unzip(src string, dest string, withoutSubFolder bool) []string {
+func (o *MyHttp) Unzip(src string, dest string) []string {
 	var filenames []string
 	r, err := zip.OpenReader(src)
 	if err != nil {
@@ -523,7 +543,7 @@ func (o *MyHttp) Unzip(src string, dest string, withoutSubFolder bool) []string 
 	defer r.Close()
 	for _, f := range r.File {
 		fpath := filepath.Join(dest, f.Name)
-		if withoutSubFolder {
+		if o.Settings.UnzipWithoutSubfolder {
 			tmp := strings.Replace(f.Name, `\`, string(os.PathSeparator), -1)
 			tmp = strings.Replace(tmp, `/`, string(os.PathSeparator), -1)
 			f_Name := strings.Split(tmp, string(os.PathSeparator))
@@ -565,15 +585,56 @@ func (o *MyHttp) Unzip(src string, dest string, withoutSubFolder bool) []string 
 	return filenames
 }
 
+// SaveJson()
+// save data to config file
+func (o *MyHttp) SaveJson(default_ bool) {
+	if default_ {
+		type_ := reflect.TypeOf(&o.Settings)
+		value_ := reflect.ValueOf(&o.Settings)
+		for i := 0; i < type_.Elem().NumField(); i++ {
+			if value_.Elem().Field(i).IsZero() {
+				def := type_.Elem().Field(i).Tag.Get("default")
+				if def != "" {
+					switch type_.Elem().Field(i).Type.String() {
+					case "int":
+						result, _ := strconv.Atoi(def)
+						value_.Elem().Field(i).SetInt(int64(result))
+					case "string":
+						value_.Elem().Field(i).SetString(def)
+					case "bool":
+						switch def {
+						case "true":
+							value_.Elem().Field(i).SetBool(true)
+						case "false":
+							value_.Elem().Field(i).SetBool(false)
+						}
+					}
+				}
+			}
+		}
+	}
+	all, err := json.MarshalIndent(o.Settings, "", "  ")
+	if err != nil {
+		o.ToError(err.Error())
+	}
+	ioutil.WriteFile(settingsFile, all, 0775)
+}
+
+// LoadJson()
+// get config file data
+func (o *MyHttp) LoadJson() {
+	b, err := ioutil.ReadFile(settingsFile)
+	if err != nil {
+		o.ToError(err.Error())
+	}
+	json.Unmarshal(b, &o.Settings)
+}
+
 func main() {
-	meters := false
-	upload := false
-	download := false
-	manual := false
-	settingsFile := ""
+	meters, upload, download, manual := false, false, false, false
 
 	dirDef, _ := os.Getwd()
-	dirSettingsFile := dirDef + `\` + settings
+	dirSettingsFile := dirDef + string(os.PathSeparator) + settingsFile
 
 	flag.BoolVar(&meters, "meter", false, "download meters")
 	flag.BoolVar(&upload, "u", false, "upload data")
@@ -585,40 +646,16 @@ func main() {
 	flag.PrintDefaults()
 
 	var sg MyHttp
-
-	fileIni, _ := ini.LoadFile(settingsFile)
-	sg.Ini = fileIni["General"]
-
+	sg.Settings = Settings{}
+	sg.LoadJson()
 	if !exists(dirSettingsFile) {
 		p("Not found settings file. Create Empty file")
 		sg.ToError(fmt.Errorf("error file settings %s", dirSettingsFile).Error())
-		textSettings := `
-[General]
-path_download_meter = \\10.10.10.10\folder\meters.txt
-path_download_data_zip = \\10.10.10.10\folder\Pays\
-path_download_data = \\10.10.10.10\folder\Pays\
-path_upload_data_zip = \\10.10.10.10\folder\Saldo\
-path_upload_data = \\10.10.10.10\folder\Saldo\
-path_logs = \\10.10.10.10\folder\Logs\
-mail_sender_alias = INFO
-mail_sender_email = info@info.info
-mail_recipients_email = r1@info.info;r2@info.info
-mail_server = 10.10.10.10:25
-mail_error_subject = "error"
-mail_error_body = <b style='color:red'>ERROR</b>
-arm_server = https://172.0.0.1
-arm_login = lloginn
-arm_password = ppasswordd
-arm_trying = 5
-upload_mask = rsaldo_(in|ra|ra_p|s|inb|p|o|z)\.txt$
-unzip_without_subfolder = yes
-delete_ziped = yes
-last_days = 10`
-		ioutil.WriteFile(dirSettingsFile, []byte(textSettings), 0755)
+		sg.SaveJson(true)
 	}
-	sg.Login = sg.Ini[arm_login]
-	sg.Password = sg.Ini[arm_password]
-	sg.Host = sg.Ini[arm_server]
+	sg.Login = sg.Settings.ArmLogin
+	sg.Password = sg.Settings.ArmPassword
+	sg.Host = sg.Settings.ArmServer
 	sg.log("HOST [" + sg.Host + "]")
 	sg.CookiesJar, _ = cookiejar.New(nil)
 	sg.PreLoginTo()
