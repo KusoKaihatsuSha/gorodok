@@ -1,3 +1,5 @@
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![godoc](https://godoc.org/github.com/KusoKaihatsuSha/gorodok?status.svg)](https://godoc.org/github.com/KusoKaihatsuSha/gorodok) [![Go Report Card](https://goreportcard.com/badge/github.com/KusoKaihatsuSha/gorodok)](https://goreportcard.com/report/github.com/KusoKaihatsuSha/gorodok)
+
 #  Upload/Download gorodok data (unofficial app for Sistema Gorod)
 
 > Unofficial app for billing synchronized and getting meter reading. (not public resource 'gorodok' by https://sistemagorod.ru)
